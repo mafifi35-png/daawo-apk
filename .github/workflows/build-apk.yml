@@ -19,7 +19,17 @@ jobs:
           java-version: 17
       - run: npm install
       - run: npx cap add android
-      - run: npx capacitor-assets generate --android --iconBackgroundColor '#0E2620'
+      - name: Set app icon
+        run: |
+          for d in android/app/src/main/res/mipmap-*; do
+            [ -d "$d" ] || continue
+            case "$d" in
+              *anydpi*) rm -rf "$d"; continue;;
+            esac
+            cp assets/icon-only.png "$d/ic_launcher.png"
+            cp assets/icon-only.png "$d/ic_launcher_round.png"
+            rm -f "$d/ic_launcher_foreground.png"
+          done
       - run: npx cap sync android
       - name: Build APK
         working-directory: android
@@ -30,8 +40,6 @@ jobs:
           if [ $code -ne 0 ]; then
             msg=$(grep -n -A14 "What went wrong" ../build.log | head -40 | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error title=GradleError::$msg"
-            msg2=$(grep -n -m8 -E "error:|Caused by|Execution failed" ../build.log | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::error title=GradleLines::$msg2"
           fi
           exit $code
       - uses: actions/upload-artifact@v4
