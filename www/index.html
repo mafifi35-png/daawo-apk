@@ -31,7 +31,7 @@
   .logout-btn{ position:absolute; left:0; top:0; background:none; border:1px solid var(--line); color:var(--muted); border-radius:10px; padding:6px 10px; font-size:11px; font-family:inherit; }
 
   .tabbar{ display:flex; gap:5px; margin:12px 0 14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px; overflow-x:auto; }
-  .tab{ flex:1; text-align:center; padding:8px 2px; border-radius:9px; font-size:10.3px; font-weight:700; color:var(--muted); cursor:pointer; white-space:nowrap; }
+  .tab{ flex:1 0 auto; text-align:center; padding:8px 10px; border-radius:9px; font-size:10.3px; font-weight:700; color:var(--muted); cursor:pointer; white-space:nowrap; }
   .tab.active{ background:var(--gold); color:#1a1206; }
 
   .card{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:14px; }
@@ -92,6 +92,25 @@
   .stat .l{ font-size:11px; color:var(--muted); margin-bottom:4px; }
   .stat .v{ font-size:18px; font-weight:800; color:var(--gold); }
   footer{ text-align:center; font-size:10.5px; color:var(--muted-2); margin-top:6px; }
+
+  .chk{ display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--line); font-size:13px; cursor:pointer; }
+  .chk input{ width:18px; height:18px; accent-color:var(--gold); flex:none; margin:0; }
+  .toast{ position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); background:rgba(0,0,0,.85); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; z-index:300; max-width:90%; text-align:center; }
+  .mini-btn{ background:transparent; border:1px solid var(--line); color:var(--gold); border-radius:8px; padding:3px 9px; font-size:10.5px; font-family:inherit; cursor:pointer; margin-top:4px; }
+  .btns{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .busy{ position:fixed; inset:0; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; z-index:400; color:#fff; font-size:14px; padding:20px; text-align:center; }
+
+  .tx-row.deleted{ opacity:.75; background:rgba(200,80,60,.07); }
+  .tx-row.deleted .amt, .tx-row.deleted .nt{ text-decoration:line-through; }
+  .tx-row .info{ flex:1; min-width:0; }
+  .tx-meta{ font-size:10.5px; color:var(--muted-2); margin-top:2px; line-height:1.5; }
+  .tx-meta.del{ color:var(--danger); }
+  .mini-del{ color:var(--danger); border-color:var(--danger); }
+  .pill.bad{ color:var(--danger); border-color:var(--danger); }
+  .pill.good{ color:var(--success); border-color:var(--success); }
+  .sub-title{ font-size:12px; color:var(--gold); font-weight:800; margin:14px 0 4px; }
+  .warn-box{ font-size:11.5px; color:var(--muted); background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:9px 11px; line-height:1.7; margin-bottom:10px; }
 </style>
 </head>
 <body>
@@ -115,7 +134,6 @@
 "use strict";
 
 /* ======================= إعداد السيرفر ======================= */
-/* حط هنا رابط الـ Worker بتاعك بعد ما تنشره على Cloudflare */
 var API_URL = "https://daawo-api.m-afifi35.workers.dev";
 
 var token = null;
@@ -145,28 +163,71 @@ function api(method, path, body){
 }
 
 function fmtNum(n){ return (Number(n)||0).toLocaleString("ar-EG"); }
+function fmtD(ts){ return new Date(ts).toLocaleDateString("ar-EG",{year:"numeric",month:"2-digit",day:"2-digit"}); }
+function fmtT(ts){ return new Date(ts).toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"}); }
 function fmtTime(ts){
   if(!ts) return "";
   var d = new Date(ts);
   return d.toLocaleDateString("ar-EG",{day:"numeric",month:"short"}) + " - " + d.toLocaleTimeString("ar-EG",{hour:"2-digit",minute:"2-digit"});
 }
+function ymd(d){ var m=d.getMonth()+1, day=d.getDate(); return d.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(day<10?"0":"")+day; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function showErr(id, msg){ var el = document.getElementById(id); el.textContent = msg; el.style.display = "block"; }
+function toast(msg){
+  var t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 2300);
+}
 
 var CATS = [
   {key:"patient", label:"صناديق المرضى"},
   {key:"emergency", label:"تبرعات طارئة"},
   {key:"gaza", label:"غزة"}
 ];
+var ROLE_LABEL = {admin:"مدير", supervisor:"مشرف", employee:"متطوع جمع تبرعات"};
+
+/* ======================= الصلاحيات ======================= */
+var PERMS = [
+  {k:"donate", l:"تسجيل التبرعات"},
+  {k:"expense", l:"تسجيل المصروفات"},
+  {k:"manageFunds", l:"إضافة وتعديل وإغلاق الصناديق"},
+  {k:"reports", l:"عرض التقارير والإجماليات"},
+  {k:"print", l:"طباعة التقارير والإيصالات (PDF)"},
+  {k:"viewLog", l:"رؤية سجل حركات الصناديق"},
+  {k:"editTx", l:"تعديل وحذف الحركات واسترجاعها من السلة"}
+];
+var PERM_DEFAULTS = {
+  supervisor: {donate:true, expense:true, manageFunds:true, reports:true, print:true, viewLog:true, editTx:true},
+  employee:   {donate:true, expense:false, manageFunds:false, reports:false, print:false, viewLog:true, editTx:false}
+};
+function can(k){ return !!(currentUser && currentUser.perms && currentUser.perms[k]); }
+function permBoxes(perms){
+  return PERMS.map(function(p){
+    return '<label class="chk"><input type="checkbox" data-perm="'+p.k+'"'+(perms[p.k]?' checked':'')+'><span>'+esc(p.l)+'</span></label>';
+  }).join("");
+}
+function readPerms(box){
+  var o = {};
+  Array.prototype.forEach.call(box.querySelectorAll("input[data-perm]"), function(i){ o[i.getAttribute("data-perm")] = i.checked; });
+  return o;
+}
 
 /* ======================= حالة التطبيق ======================= */
-var currentUser = null;      /* {uid, username, displayName, role} */
+var currentUser = null;      /* {uid, username, displayName, role, perms} */
 var currentTab = "funds";
 var catFilter = "patient";
 var openFundId = null;
 var fundsCache = [];
 var lastFundsJson = "";
 var pollTimer = null;
+var authView = "login";      /* login | setup | recover */
+var busyEl = null;
+
+function setBusy(msg){
+  if(!busyEl){ busyEl = document.createElement("div"); busyEl.className = "busy"; document.body.appendChild(busyEl); }
+  busyEl.textContent = msg;
+}
+function clearBusy(){ if(busyEl && busyEl.parentNode){ busyEl.parentNode.removeChild(busyEl); } busyEl = null; }
 
 /* جلب الصناديق (فيها الإجماليات). بترجع true لو في تغيير */
 function refreshFunds(){
@@ -180,21 +241,84 @@ function refreshFunds(){
 }
 function fundBalance(f){ return Math.round(((Number(f.i)||0)-(Number(f.o)||0))*100)/100; }
 
-/* تحديث تلقائي كل 30 ثانية (بدل المزامنة اللحظية) */
-function startPolling(){
-  stopPolling();
-  pollTimer = setInterval(pollTick, 30000);
+/* بيحدّث صلاحيات المستخدم لو المدير غيّرها */
+function refreshMe(){
+  return api("GET","/me").then(function(d){
+    var u = d.user;
+    if(!currentUser) return;
+    var changed = JSON.stringify(u.perms)!==JSON.stringify(currentUser.perms) || u.role!==currentUser.role || u.displayName!==currentUser.displayName;
+    currentUser.perms = u.perms; currentUser.role = u.role; currentUser.displayName = u.displayName;
+    if(changed){
+      renderHeader(); renderTabs();
+      if(!tabAllowed(currentTab)) switchTab("funds");
+      else if(currentTab==="funds"){ if(openFundId) renderFundDetail(openFundId); else renderFundsList(); }
+      else switchTab(currentTab);
+    }
+  });
 }
+
+/* تحديث تلقائي كل 30 ثانية (بدل المزامنة اللحظية) */
+function startPolling(){ stopPolling(); pollTimer = setInterval(pollTick, 30000); }
 function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
 function pollTick(){
-  if(!currentUser || document.hidden || currentTab!=="funds") return;
+  if(!currentUser || document.hidden || busyEl) return;
   if(document.getElementById("modalRoot").innerHTML) return;
+  refreshMe().catch(function(){});
+  if(currentTab!=="funds") return;
   refreshFunds().then(function(changed){
     if(!changed || currentTab!=="funds") return;
     if(openFundId) renderFundDetail(openFundId); else renderFundsList();
   }).catch(function(){});
 }
 document.addEventListener("visibilitychange", function(){ if(!document.hidden) pollTick(); });
+
+/* ======================= زر الرجوع ======================= */
+/* بيرجع خطوة جوه البرنامج. ولو مفيش خطوات، الضغطة التانية (خلال ثانيتين) بتقفل البرنامج */
+function handleBack(){
+  if(busyEl) return true;
+  var root = document.getElementById("modalRoot");
+  if(root.innerHTML.trim()){ root.innerHTML = ""; return true; }
+  if(!currentUser){
+    if(authView==="recover"){ renderLoginScreen(); return true; }
+    return false;
+  }
+  if(openFundId){ openFundId = null; renderFundsList(); return true; }
+  if(currentTab!=="funds"){ switchTab("funds"); return true; }
+  return false;
+}
+var lastBackAt = 0;
+function onBackPressed(){
+  try{
+    if(handleBack()){ lastBackAt = 0; return "handled"; }
+  }catch(e){}
+  var now = Date.now();
+  if(now - lastBackAt < 2000){ lastBackAt = 0; return "exit"; }
+  lastBackAt = now;
+  toast("اضغط رجوع مرة تانية للخروج");
+  return "warn";
+}
+function exitApp(){
+  var C = window.Capacitor;
+  if(C && C.Plugins && C.Plugins.App && C.Plugins.App.exitApp){ C.Plugins.App.exitApp(); return; }
+  try{ window.close(); }catch(e){}
+  history.back();
+}
+function setupBackHandler(){
+  var C = window.Capacitor;
+  if(C && C.Plugins && C.Plugins.App && C.Plugins.App.addListener){
+    C.Plugins.App.addListener("backButton", function(){
+      if(onBackPressed()==="exit") exitApp();
+    });
+    return;
+  }
+  /* نسخة المتصفح */
+  try{ history.pushState({daawo:1}, ""); }catch(e){}
+  window.addEventListener("popstate", function(){
+    var r = onBackPressed();
+    if(r==="exit"){ history.back(); return; }
+    try{ history.pushState({daawo:1}, ""); }catch(e){}
+  });
+}
 
 /* ======================= المصادقة ======================= */
 function renderAuthLoading(msg){
@@ -219,14 +343,15 @@ function showLoggedOut(){
 }
 
 function renderSetupAdminScreen(){
+  authView = "setup";
   document.getElementById("appScreen").style.display = "none";
   var el = document.getElementById("authScreen");
   el.style.display = "block";
   el.innerHTML =
     '<div class="card"><h2>إعداد حساب المدير (أول مرة)</h2>'+
-    '<p class="hint">حساب المدير بيتعمل مرة واحدة بس، وبعده مفيش حد يقدر يسجل كمدير. المشرفين والعاملين بيتضافوا من المدير جوه البرنامج.</p>'+
+    '<p class="hint">حساب المدير بيتعمل مرة واحدة بس، وبعده مفيش حد يقدر يسجل كمدير. المشرفين والمتطوعين بيتضافوا من المدير جوه البرنامج.</p>'+
     '<div class="field"><label>كود الإعداد (السري)</label><input id="su_code" type="password" autocomplete="off"></div>'+
-    '<div class="field"><label>اسم المدير</label><input id="su_name" placeholder="مثلاً: محمود أفيفي"></div>'+
+    '<div class="field"><label>اسم المدير</label><input id="su_name" placeholder="مثلاً: جمعة فوزى"></div>'+
     '<div class="field"><label>اسم المستخدم (دخول)</label><input id="su_user" autocomplete="off" placeholder="مثلاً: admin"></div>'+
     '<div class="field"><label>كلمة السر</label><input id="su_pass" type="password" placeholder="6 حروف/أرقام على الأقل"></div>'+
     '<div class="err" id="su_err"></div>'+
@@ -252,6 +377,7 @@ function renderSetupAdminScreen(){
 }
 
 function renderLoginScreen(){
+  authView = "login";
   document.getElementById("appScreen").style.display = "none";
   var el = document.getElementById("authScreen");
   el.style.display = "block";
@@ -280,14 +406,15 @@ function renderLoginScreen(){
 }
 
 function renderRecoverScreen(){
+  authView = "recover";
   document.getElementById("appScreen").style.display = "none";
   var el = document.getElementById("authScreen");
   el.style.display = "block";
   el.innerHTML =
     '<div class="card"><h2>تغيير / استرجاع حساب المدير</h2>'+
-    '<p class="hint">محتاج كود الإعداد السري. كل البيانات (الصناديق والتبرعات والعاملين) بتفضل زي ما هي، والمدير الحالي بيتطلّع من كل الأجهزة.</p>'+
+    '<p class="hint">محتاج كود الإعداد السري. كل البيانات (الصناديق والتبرعات والفريق) بتفضل زي ما هي، والمدير الحالي بيتطلّع من كل الأجهزة.</p>'+
     '<div class="field"><label>كود الإعداد (السري)</label><input id="rc_code" type="password" autocomplete="off"></div>'+
-    '<div class="field"><label>اسم المدير الجديد</label><input id="rc_name"></div>'+
+    '<div class="field"><label>اسم المدير الجديد</label><input id="rc_name" placeholder="مثلاً: جمعة فوزى"></div>'+
     '<div class="field"><label>اسم المستخدم (دخول)</label><input id="rc_user" autocomplete="off"></div>'+
     '<div class="field"><label>كلمة السر الجديدة</label><input id="rc_pass" type="password" placeholder="6 حروف/أرقام على الأقل"></div>'+
     '<div class="err" id="rc_err"></div>'+
@@ -314,7 +441,7 @@ function renderRecoverScreen(){
 }
 
 function startSession(u){
-  currentUser = { uid:u.username, username:u.username, displayName:u.displayName, role:u.role };
+  currentUser = { uid:u.username, username:u.username, displayName:u.displayName, role:u.role, perms:u.perms || {} };
   document.getElementById("authScreen").style.display = "none";
   document.getElementById("appScreen").style.display = "block";
   currentTab = "funds"; openFundId = null; lastFundsJson = "";
@@ -344,25 +471,30 @@ function forceLogout(){
 }
 
 function renderHeader(){
-  var roleLabel = {admin:"مدير", supervisor:"مشرف", employee:"عامل"}[currentUser.role] || "";
+  var roleLabel = ROLE_LABEL[currentUser.role] || "";
   document.getElementById("headerBox").innerHTML =
     '<button class="logout-btn" id="logoutBtn">خروج</button>'+
     '<h1>داوو مرضاكم بالصدقة</h1><div class="brand">برويش</div>'+
-    '<div class="who">'+esc(currentUser.displayName)+' <span class="role-badge">'+roleLabel+'</span></div>';
+    '<div class="who">'+esc(currentUser.displayName)+' <span class="role-badge">'+esc(roleLabel)+'</span></div>';
   document.getElementById("logoutBtn").onclick = forceLogout;
 }
 
 /* ======================= التنقل بين التابات ======================= */
-function renderTabs(){
+function tabsFor(){
   var tabs = [{key:"funds", label:"الصناديق"}];
-  if(currentUser.role==="admin" || currentUser.role==="supervisor"){
-    tabs.push({key:"reports", label:"التقارير"});
-  }
+  if(can("reports") || can("print")) tabs.push({key:"reports", label:"التقارير"});
+  if(can("editTx")) tabs.push({key:"trash", label:"السلة"});
   if(currentUser.role==="admin"){
-    tabs.push({key:"users", label:"العاملين"});
+    tabs.push({key:"users", label:"الفريق"});
+    tabs.push({key:"audit", label:"التدقيق"});
+    tabs.push({key:"backup", label:"النسخ"});
   }
+  return tabs;
+}
+function tabAllowed(key){ return tabsFor().some(function(t){ return t.key===key; }); }
+function renderTabs(){
   var bar = document.getElementById("tabbar");
-  bar.innerHTML = tabs.map(function(t){
+  bar.innerHTML = tabsFor().map(function(t){
     return '<div class="tab'+(t.key===currentTab?' active':'')+'" data-tab="'+t.key+'">'+t.label+'</div>';
   }).join("");
   Array.prototype.forEach.call(bar.querySelectorAll(".tab"), function(el){
@@ -379,19 +511,21 @@ function switchTab(key){
   }
   else if(key==="reports") renderReports();
   else if(key==="users") renderUsersScreen();
+  else if(key==="trash") renderTrashScreen();
+  else if(key==="audit") renderAuditScreen();
+  else if(key==="backup") renderBackupScreen();
 }
 
 /* ======================= الصناديق ======================= */
 function renderFundsList(){
   var c = document.getElementById("content");
-  var canManage = currentUser.role==="admin" || currentUser.role==="supervisor";
   var filtered = fundsCache.filter(function(f){ return f.category===catFilter; });
 
   var html = '<div class="cat-filter">'+CATS.map(function(cat){
     return '<button class="'+(cat.key===catFilter?'active':'')+'" data-cat="'+cat.key+'">'+cat.label+'</button>';
   }).join('')+'</div>';
 
-  if(canManage && catFilter!=="gaza"){
+  if(can("manageFunds") && catFilter!=="gaza"){
     html += '<button class="full-btn" id="addFundBtn" style="margin-bottom:12px">+ إضافة صندوق جديد</button>';
   }
 
@@ -456,6 +590,7 @@ function openEditFundModal(fund){
     '<button class="full-btn" id="ef_save">حفظ</button></div>'+
     '<div class="row-actions" style="margin-top:8px">'+
     '<button class="btn-danger" id="ef_toggle" style="flex:1">'+(fund.status==="closed"?"إعادة فتح الصندوق":"إغلاق الصندوق")+'</button>'+
+    (fund.category!=="gaza" ? '<button class="btn-danger" id="ef_del" style="flex:1">نقل للسلة</button>' : '')+
     '</div></div></div>';
   function done(p){ p.then(function(){ root.innerHTML=""; return afterChange(); }).catch(function(e){ showErr("ef_err", e.message); }); }
   document.getElementById("ef_cancel").onclick = function(){ root.innerHTML=""; };
@@ -467,42 +602,89 @@ function openEditFundModal(fund){
   document.getElementById("ef_toggle").onclick = function(){
     done(api("PATCH","/funds/"+fund.id,{status: fund.status==="closed"?"open":"closed"}));
   };
+  var efDel = document.getElementById("ef_del");
+  if(efDel) efDel.onclick = function(){
+    reasonModal("نقل الصندوق للسلة", "الصندوق «"+fund.name+"» هيختفي من القايمة ومن الإجماليات، وتقدر ترجّعه من السلة في أي وقت.", "نقل للسلة", true, function(reason){
+      return api("POST","/funds/"+fund.id+"/delete",{reason:reason}).then(function(){
+        openFundId = null; toast("اتنقل للسلة ✓"); return afterChange();
+      });
+    });
+  };
 }
 
+var curTx = [];
 function renderFundDetail(fundId){
   var fund = fundsCache.find(function(f){ return f.id===fundId; });
   var c = document.getElementById("content");
   if(!fund){ c.innerHTML = '<div class="empty">الصندوق غير موجود</div>'; return; }
-  var canManage = currentUser.role==="admin" || currentUser.role==="supervisor";
 
   var html = '<button class="back-btn" id="backBtn">‹ رجوع للصناديق</button>';
-  html += '<div class="card"><h2>'+esc(fund.name)+' '+(canManage?'<span id="editFundIcon" style="float:left;cursor:pointer;color:var(--muted);font-size:12px">✎ تعديل</span>':'')+'</h2>';
+  html += '<div class="card"><h2>'+esc(fund.name)+' '+(can("manageFunds")?'<span id="editFundIcon" style="float:left;cursor:pointer;color:var(--muted);font-size:12px">✎ تعديل</span>':'')+'</h2>';
   html += '<div class="stat-row"><div class="stat"><div class="l">الرصيد الحالي</div><div class="v">'+fmtNum(fundBalance(fund))+' ج</div></div>';
   html += '<div class="stat"><div class="l">إجمالي التبرعات</div><div class="v">'+fmtNum(fund.i)+' ج</div></div></div>';
-  html += '<button class="full-btn" id="addDonationBtn">+ تسجيل تبرع</button>';
-  if(canManage) html += '<button class="btn-flat" id="addExpenseBtn" style="width:100%;margin-top:8px">+ تسجيل مصروف</button>';
+  if(can("donate")) html += '<button class="full-btn" id="addDonationBtn">+ تسجيل تبرع</button>';
+  if(can("expense")) html += '<button class="btn-flat" id="addExpenseBtn" style="width:100%;margin-top:8px">+ تسجيل مصروف</button>';
   html += '</div>';
-  html += '<div class="card"><h2>سجل الحركات</h2><div class="list" id="txList"><div class="loading">جاري التحميل...</div></div></div>';
+  if(can("viewLog")){
+    html += '<div class="card"><h2>سجل الحركات</h2><div class="list" id="txList"><div class="loading">جاري التحميل...</div></div></div>';
+  }
   c.innerHTML = html;
 
   document.getElementById("backBtn").onclick = function(){ openFundId=null; renderFundsList(); };
   var editIcon = document.getElementById("editFundIcon");
   if(editIcon) editIcon.onclick = function(){ openEditFundModal(fund); };
-  document.getElementById("addDonationBtn").onclick = function(){ openTxModal(fund, "donation"); };
+  var dBtn = document.getElementById("addDonationBtn");
+  if(dBtn) dBtn.onclick = function(){ openTxModal(fund, "donation"); };
   var expBtn = document.getElementById("addExpenseBtn");
   if(expBtn) expBtn.onclick = function(){ openTxModal(fund, "expense"); };
 
+  if(!can("viewLog")) return;
   api("GET","/funds/"+fundId+"/tx").then(function(res){
     var list = document.getElementById("txList");
     if(!list || openFundId!==fundId) return;
     var txs = res.tx;
-    if(!txs.length){ list.innerHTML='<div class="empty">لا توجد حركات بعد</div>'; return; }
-    list.innerHTML = txs.map(function(t){
-      return '<div class="tx-row"><div class="info"><div class="who">'+esc(t.who||"")+'</div>'+
-        (t.note?'<div class="note">'+esc(t.note)+'</div>':'')+'</div>'+
-        '<div><div class="amt '+(t.t==="in"?"in":"out")+'">'+(t.t==="in"?"+":"-")+fmtNum(t.amount)+'</div>'+
-        '<div class="note">'+fmtTime(t.ts)+'</div></div></div>';
+    curTx = txs;
+    if(!txs.length){ list.className="list"; list.innerHTML='<div class="empty">لا توجد حركات بعد</div>'; return; }
+    list.innerHTML = txs.map(function(t, i){
+      var del = !!t.del, meta = "", btns = "";
+      if(del) meta = '<div class="tx-meta del">🗑 حذفها '+esc(t.delBy||"")+' - '+fmtTime(t.delAt)+(t.delReason?' | السبب: '+esc(t.delReason):'')+'</div>';
+      else if(t.editBy) meta = '<div class="tx-meta">✎ عدّلها '+esc(t.editBy)+' - '+fmtTime(t.editAt)+'</div>';
+      if(!del && can("print")) btns += '<button class="mini-btn" data-rc="'+i+'">إيصال PDF</button>';
+      if(can("editTx")){
+        if(del) btns += '<button class="mini-btn" data-rs="'+i+'">استرجاع</button>';
+        else btns += '<button class="mini-btn" data-ed="'+i+'">تعديل</button><button class="mini-btn mini-del" data-dl="'+i+'">حذف</button>';
+      }
+      if(t.hist && t.hist.length) btns += '<button class="mini-btn" data-hi="'+i+'">السجل</button>';
+      return '<div class="tx-row'+(del?' deleted':'')+'"><div class="info"><div class="who">'+esc(t.who||"")+'</div>'+
+        (t.note?'<div class="note nt">'+esc(t.note)+'</div>':'')+meta+'</div>'+
+        '<div style="text-align:left"><div class="amt '+(t.t==="in"?"in":"out")+'">'+(t.t==="in"?"+":"-")+fmtNum(t.amount)+'</div>'+
+        '<div class="note">'+fmtTime(t.ts)+'</div><div class="btns">'+btns+'</div></div></div>';
     }).join("");
+    function txAt(b, attr){ return curTx[Number(b.getAttribute(attr))]; }
+    Array.prototype.forEach.call(list.querySelectorAll("[data-rc]"), function(b){
+      b.onclick = function(){ makeReceipt(fund, txAt(b, "data-rc")); };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-ed]"), function(b){
+      b.onclick = function(){ openEditTxModal(fund, txAt(b, "data-ed")); };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-dl]"), function(b){
+      b.onclick = function(){
+        var t = txAt(b, "data-dl");
+        reasonModal("حذف الحركة", (t.t==="in"?"تبرع ":"مصروف ")+fmtNum(t.amount)+" ج هتتنقل للسلة وتفضل ظاهرة مشطوبة في السجل، ومش هتتحسب في الإجماليات.", "حذف (نقل للسلة)", true, function(reason){
+          return api("POST","/funds/"+fund.id+"/tx/"+t.id+"/delete",{reason:reason}).then(function(){ toast("اتنقلت للسلة ✓"); return afterChange(); });
+        });
+      };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-rs]"), function(b){
+      b.onclick = function(){
+        var t = txAt(b, "data-rs"); b.disabled = true;
+        api("POST","/funds/"+fund.id+"/tx/"+t.id+"/restore",{}).then(function(){ toast("تم الاسترجاع ✓"); return afterChange(); })
+          .catch(function(e){ b.disabled = false; toast(e.message); });
+      };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-hi]"), function(b){
+      b.onclick = function(){ showTxHistory(txAt(b, "data-hi")); };
+    });
   }).catch(function(e){
     var list = document.getElementById("txList");
     if(list) list.innerHTML = '<div class="empty">'+esc(e.message)+'</div>';
@@ -527,11 +709,266 @@ function openTxModal(fund, kind){
     document.getElementById("tx_err").style.display = "none";
     if(!amt || amt<=0){ showErr("tx_err","اكتب مبلغ صحيح"); return; }
     var btn = document.getElementById("tx_save"); btn.disabled = true;
-    api("POST","/funds/"+fund.id+"/tx",{kind:kind, amount:amt, note:note}).then(function(){
+    api("POST","/funds/"+fund.id+"/tx",{kind:kind, amount:amt, note:note}).then(function(res){
       root.innerHTML="";
-      return afterChange();
+      afterChange();
+      if(can("print") && res.tx) showSavedModal(fund, res.tx);
+      else toast("تم الحفظ ✓");
     }).catch(function(e){ btn.disabled = false; showErr("tx_err", e.message); });
   };
+}
+
+function showSavedModal(fund, tx){
+  var root = document.getElementById("modalRoot");
+  root.innerHTML =
+    '<div class="overlay"><div class="modal"><h3>تم الحفظ ✓</h3>'+
+    '<p class="hint">'+(tx.t==="in"?"التبرع":"المصروف")+' بمبلغ '+fmtNum(tx.amount)+' ج اتسجل في '+esc(fund.name)+'</p>'+
+    '<div class="row-actions"><button class="btn-flat" id="sv_close">تم</button>'+
+    '<button class="full-btn" id="sv_rc">إيصال PDF</button></div></div></div>';
+  document.getElementById("sv_close").onclick = function(){ root.innerHTML=""; };
+  document.getElementById("sv_rc").onclick = function(){ root.innerHTML=""; makeReceipt(fund, tx); };
+}
+
+/* ======================= محرك PDF ======================= */
+function loadScript(src){
+  return new Promise(function(res, rej){
+    var s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = function(){ rej(new Error("load " + src)); };
+    document.head.appendChild(s);
+  });
+}
+var pdfLibsP = null;
+function ensurePdfLibs(){
+  if(window.jspdf && window.html2canvas) return Promise.resolve();
+  if(!pdfLibsP){
+    pdfLibsP = loadScript("lib/jspdf.umd.min.js")
+      .catch(function(){ return loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"); })
+      .then(function(){
+        return loadScript("lib/html2canvas.min.js")
+          .catch(function(){ return loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"); });
+      })
+      .catch(function(){ pdfLibsP = null; throw new Error("تعذر تحميل مكتبة PDF. تأكد من الإنترنت وجرب تاني"); });
+  }
+  return pdfLibsP;
+}
+
+var PDF_FONT = 'direction:rtl;font-family:Tajawal,"Segoe UI",Tahoma,Arial,sans-serif;color:#111;background:#fff;';
+
+/* بيحوّل صفحات HTML (كل صفحة عنصر واحد بحجم ثابت) لملف PDF */
+function htmlPagesToPdf(pages, format){
+  return ensurePdfLibs().then(function(){
+    var fontsOk = Promise.resolve();
+    try{
+      if(document.fonts && document.fonts.load){
+        fontsOk = Promise.all([document.fonts.load("400 14px Tajawal"), document.fonts.load("700 14px Tajawal"), document.fonts.load("800 14px Tajawal")]).catch(function(){});
+      }
+    }catch(e){}
+    return fontsOk;
+  }).then(function(){
+    var host = document.createElement("div");
+    host.style.cssText = "position:fixed;left:-12000px;top:0;";
+    document.body.appendChild(host);
+    var pdf = new window.jspdf.jsPDF({unit:"mm", format:format, orientation:"portrait", compress:true});
+    var pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight();
+    var chain = Promise.resolve();
+    pages.forEach(function(html, i){
+      chain = chain.then(function(){
+        setBusy("جاري تجهيز الصفحة " + fmtNum(i+1) + " من " + fmtNum(pages.length) + "...");
+        host.innerHTML = html;
+        return window.html2canvas(host.firstChild, {scale:2, backgroundColor:"#ffffff", logging:false});
+      }).then(function(canvas){
+        if(i>0) pdf.addPage(format, "portrait");
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.9), "JPEG", 0, 0, pw, ph);
+      });
+    });
+    return chain.then(function(){ host.remove(); return pdf; }, function(e){ host.remove(); throw e; });
+  });
+}
+
+/* حفظ / مشاركة الـ PDF من الموبايل */
+function savePdf(pdf, filename){
+  var C = window.Capacitor;
+  var native = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Filesystem && C.Plugins.Share;
+  if(native){
+    var b64 = pdf.output("datauristring").split(",")[1];
+    return C.Plugins.Filesystem.writeFile({path:filename, data:b64, directory:"CACHE"}).then(function(r){
+      return C.Plugins.Share.share({title:filename, url:r.uri, dialogTitle:"احفظ أو ابعت الملف"});
+    });
+  }
+  var blob = pdf.output("blob");
+  var file = new File([blob], filename, {type:"application/pdf"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    return navigator.share({files:[file], title:filename});
+  }
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+  return Promise.resolve();
+}
+function pdfDone(p){
+  return p.then(function(){ clearBusy(); }, function(e){
+    clearBusy();
+    var m = String((e && e.message) || e || "");
+    if(/cancel|abort/i.test(m)) return;
+    toast(m || "حصل خطأ في إنشاء الـ PDF");
+  });
+}
+
+/* ---------- إيصال ---------- */
+function receiptHtml(fund, t){
+  var isIn = t.t === "in";
+  var no = String(t.id || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
+  function row(l, v){
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:11px 4px;border-bottom:1px dashed #cfcfcf;font-size:15px"><span style="color:#666">'+esc(l)+'</span><b style="text-align:left">'+esc(v)+'</b></div>';
+  }
+  return '<div style="width:559px;height:794px;box-sizing:border-box;padding:28px;'+PDF_FONT+'">'+
+    '<div style="border:3px double #C88F45;height:100%;box-sizing:border-box;padding:26px 24px;position:relative">'+
+      '<div style="text-align:center;border-bottom:2px solid #C88F45;padding-bottom:12px;margin-bottom:18px">'+
+        '<div style="font-size:24px;font-weight:800;color:#0E2620">داوو مرضاكم بالصدقة</div>'+
+        '<div style="font-size:13px;color:#C88F45;font-weight:700">برويش</div></div>'+
+      '<div style="text-align:center;font-size:20px;font-weight:800;margin-bottom:16px">'+(isIn?"إيصال استلام تبرع":"إيصال صرف")+'</div>'+
+      row("رقم الإيصال", no || "-")+
+      row("التاريخ", fmtD(t.ts)+" - "+fmtT(t.ts))+
+      row("الصندوق", fund.name)+
+      row(isIn?"اسم المتبرع":"البيان", t.note || (isIn?"فاعل خير":"-"))+
+      row(isIn?"المستلم":"المسجِّل", t.who || "-")+
+      '<div style="margin:22px 0 8px;text-align:center;background:#0E2620;color:#fff;border-radius:12px;padding:16px">'+
+        '<div style="font-size:13px;opacity:.8">المبلغ</div>'+
+        '<div style="font-size:34px;font-weight:800;color:#E3A857">'+fmtNum(t.amount)+' جنيه</div></div>'+
+      (isIn?'<div style="text-align:center;font-size:14px;color:#444;margin-top:14px">جزاكم الله خيرًا وتقبّل منكم</div>':'')+
+      '<div style="position:absolute;bottom:26px;left:24px;right:24px;display:flex;justify-content:space-between;font-size:13px;color:#555">'+
+        '<div style="text-align:center;width:42%"><div style="border-top:1px solid #777;padding-top:6px">توقيع المستلم</div></div>'+
+        '<div style="text-align:center;width:42%"><div style="border-top:1px solid #777;padding-top:6px">الختم</div></div></div>'+
+    '</div></div>';
+}
+function makeReceipt(fund, t){
+  if(!t) return;
+  setBusy("جاري إنشاء الإيصال...");
+  var name = "daawo-receipt-" + String(t.id||"").slice(0,6) + ".pdf";
+  pdfDone(htmlPagesToPdf([receiptHtml(fund, t)], "a5").then(function(pdf){ clearBusy(); return savePdf(pdf, name); }));
+}
+
+/* ---------- تقرير من تاريخ لتاريخ ---------- */
+var COLS_TX = [5, 15, 16, 20, 16, 8, 12];
+function pRow(cells, widths, o){
+  o = o || {};
+  var style = "display:flex;height:34px;align-items:center;border-bottom:1px solid #e1e1e1;font-size:12.5px;" +
+    (o.head ? "background:#0E2620;color:#fff;font-weight:700;" : "") + (o.bg ? "background:" + o.bg + ";" : "") + (o.bold ? "font-weight:800;" : "");
+  return '<div style="'+style+'">' + cells.map(function(c, i){
+    var col = (o.colors && o.colors[i]) ? "color:" + o.colors[i] + ";" : "";
+    return '<div style="flex:'+widths[i]+';padding:0 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'+col+'">'+esc(c)+'</div>';
+  }).join("") + '</div>';
+}
+function lnTitle(t){ return {h:44, need:44+34*2, html:'<div style="height:44px;line-height:52px;font-size:15px;font-weight:800;color:#0E2620">'+esc(t)+'</div>'}; }
+
+function paginate(lines, budget){
+  var pages = [[]], used = 0;
+  lines.forEach(function(L){
+    var cur = pages[pages.length-1];
+    if(used + (L.need || L.h) > budget && cur.length){
+      pages.push([]); used = 0; cur = pages[pages.length-1];
+      if(L.hdr){ cur.push(L.hdr); used += L.hdr.h; }
+    }
+    cur.push(L); used += L.h;
+  });
+  return pages;
+}
+
+function buildReportPages(data, o){
+  var tx = data.tx.filter(function(t){ return o.kind==="all" || t.t===o.kind; });
+  var inSum = 0, outSum = 0, byFund = {}, byWho = {};
+  tx.forEach(function(t){
+    var f = byFund[t.fundId] || (byFund[t.fundId] = {name:t.fundName, i:0, o:0});
+    if(t.t==="in"){ inSum += t.amount; f.i += t.amount; byWho[t.who] = (byWho[t.who]||0) + t.amount; }
+    else { outSum += t.amount; f.o += t.amount; }
+  });
+  var lines = [];
+
+  function box(label, val, color){
+    return '<div style="flex:1;border:1px solid #d6d6d6;border-radius:10px;padding:10px;text-align:center"><div style="font-size:12px;color:#666">'+label+'</div><div style="font-size:21px;font-weight:800;color:'+color+'">'+fmtNum(Math.round(val*100)/100)+' ج</div></div>';
+  }
+  lines.push({h:92, html:'<div style="display:flex;gap:10px;height:82px;margin-bottom:10px">'+
+    (o.kind!=="out"?box("إجمالي التبرعات", inSum, "#1d7a46"):"")+
+    (o.kind!=="in"?box("إجمالي المصروفات", outSum, "#b3402c"):"")+
+    (o.kind==="all"?box("الصافي", inSum-outSum, "#0E2620"):"")+'</div>'});
+  lines.push({h:26, html:'<div style="font-size:12px;color:#666;height:26px">عدد الحركات: '+fmtNum(tx.length)+'</div>'});
+
+  /* حسب الصندوق */
+  var fids = Object.keys(byFund);
+  if(fids.length > 1){
+    var W1 = [40, 20, 20, 20];
+    lines.push(lnTitle("حسب الصندوق"));
+    var hd = {h:34, html:pRow(["الصندوق","التبرعات","المصروفات","الصافي"], W1, {head:true})};
+    lines.push(hd);
+    fids.sort(function(a,b){ return byFund[b].i - byFund[a].i; }).forEach(function(id){
+      var f = byFund[id];
+      lines.push({h:34, hdr:hd, html:pRow([f.name, fmtNum(f.i), fmtNum(f.o), fmtNum(f.i-f.o)], W1)});
+    });
+  }
+  /* حسب المتطوع */
+  var whos = Object.keys(byWho);
+  if(o.kind!=="out" && whos.length > 1){
+    var W2 = [60, 40];
+    lines.push(lnTitle("أداء المتطوعين (مبلغ ما تم تحصيله)"));
+    var hd2 = {h:34, html:pRow(["الاسم","المبلغ المحصّل"], W2, {head:true})};
+    lines.push(hd2);
+    whos.sort(function(a,b){ return byWho[b]-byWho[a]; }).forEach(function(w){
+      lines.push({h:34, hdr:hd2, html:pRow([w, fmtNum(byWho[w])+" ج"], W2)});
+    });
+  }
+  /* التفاصيل */
+  if(!o.summaryOnly){
+    lines.push(lnTitle("تفاصيل الحركات"));
+    var hd3 = {h:34, html:pRow(["م","التاريخ","الصندوق","البيان","المسجِّل","النوع","المبلغ"], COLS_TX, {head:true})};
+    lines.push(hd3);
+    tx.forEach(function(t, i){
+      var isIn = t.t==="in";
+      lines.push({h:34, hdr:hd3, html:pRow([fmtNum(i+1), fmtD(t.ts), t.fundName, t.note||"-", t.who||"-", isIn?"تبرع":"مصروف", fmtNum(t.amount)],
+        COLS_TX, {colors:{5:isIn?"#1d7a46":"#b3402c"}})});
+    });
+  }
+  var pgs = paginate(lines, 870);
+  var title = "تقرير التبرعات والمصروفات";
+  var sub = "من " + fmtD(o.from) + " إلى " + fmtD(o.to) + " - " + (o.fundName || "كل الصناديق");
+  return pgs.map(function(pg, i){
+    return '<div style="width:794px;height:1123px;box-sizing:border-box;padding:34px 40px;position:relative;overflow:hidden;'+PDF_FONT+'">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C88F45;padding-bottom:10px;margin-bottom:14px">'+
+        '<div><div style="font-size:22px;font-weight:800;color:#0E2620">داوو مرضاكم بالصدقة</div><div style="font-size:13px;color:#C88F45;font-weight:700">برويش</div></div>'+
+        '<div style="text-align:left"><div style="font-size:17px;font-weight:800">'+esc(title)+'</div><div style="font-size:12px;color:#555;margin-top:3px">'+esc(sub)+'</div></div></div>'+
+      pg.map(function(L){ return L.html; }).join("")+
+      '<div style="position:absolute;bottom:20px;left:40px;right:40px;display:flex;justify-content:space-between;font-size:11px;color:#777;border-top:1px solid #ddd;padding-top:6px">'+
+        '<span>طُبع بواسطة: '+esc(currentUser.displayName)+' - '+fmtD(Date.now())+' '+fmtT(Date.now())+'</span>'+
+        '<span>صفحة '+fmtNum(i+1)+' من '+fmtNum(pgs.length)+'</span></div></div>';
+  });
+}
+
+function doPrintReport(){
+  var fromV = document.getElementById("pr_from").value, toV = document.getElementById("pr_to").value;
+  document.getElementById("pr_err").style.display = "none";
+  if(!fromV || !toV){ showErr("pr_err","اختار التاريخين"); return; }
+  var from = new Date(fromV + "T00:00:00").getTime();
+  var to = new Date(toV + "T23:59:59").getTime() + 999;
+  if(isNaN(from) || isNaN(to) || to < from){ showErr("pr_err","التاريخ غلط: «إلى» لازم يكون بعد «من»"); return; }
+  var fundSel = document.getElementById("pr_fund");
+  var fundId = fundSel.value;
+  var fundName = fundId ? fundSel.options[fundSel.selectedIndex].text : "";
+  var kindEl = document.getElementById("pr_kind");
+  var kind = kindEl ? kindEl.value : "in";
+  var summaryOnly = document.getElementById("pr_sum").checked;
+  setBusy("جاري جلب البيانات...");
+  pdfDone(
+    api("GET", "/report?from=" + from + "&to=" + to + (fundId ? "&fund=" + encodeURIComponent(fundId) : "")).then(function(d){
+      var shown = d.tx.filter(function(t){ return kind==="all" || t.t===kind; });
+      if(!shown.length){ throw new Error("مفيش حركات في الفترة دي"); }
+      if(!summaryOnly && shown.length > 1200){ summaryOnly = true; toast("الحركات كتيرة، هيتعمل ملخص بس. قلّل الفترة عشان التفاصيل"); }
+      if(d.truncated){ toast("الفترة كبيرة جدًا، الأرقام ناقصة. قلّل الفترة"); }
+      var pages = buildReportPages(d, {from:from, to:to, kind:kind, fundName:fundName, summaryOnly:summaryOnly});
+      return htmlPagesToPdf(pages, "a4");
+    }).then(function(pdf){
+      clearBusy();
+      return savePdf(pdf, "daawo-report-" + fromV.replace(/-/g,"") + "-" + toV.replace(/-/g,"") + ".pdf");
+    })
+  );
 }
 
 /* ======================= التقارير ======================= */
@@ -540,58 +977,79 @@ function renderReports(){
   c.innerHTML = '<div class="loading">جاري تجهيز التقرير...</div>';
   refreshFunds().then(function(){
     if(currentTab!=="reports") return;
-    var byEmployee = {}, totalDonations = 0, totalExpenses = 0;
-    fundsCache.forEach(function(f){
-      totalDonations += Number(f.i)||0;
-      totalExpenses += Number(f.o)||0;
-      var emp = f.emp || {};
-      Object.keys(emp).forEach(function(n){ byEmployee[n] = (byEmployee[n]||0) + (Number(emp[n])||0); });
-    });
+    var html = "";
 
-    var html = '<div class="card"><h2>الإجمالي العام</h2><div class="stat-row">'+
-      '<div class="stat"><div class="l">إجمالي التبرعات</div><div class="v">'+fmtNum(totalDonations)+'</div></div>'+
-      '<div class="stat"><div class="l">إجمالي المصروفات</div><div class="v">'+fmtNum(totalExpenses)+'</div></div></div></div>';
+    if(can("print")){
+      var now = new Date(), first = new Date(now.getFullYear(), now.getMonth(), 1);
+      var opts = fundsCache.slice().sort(function(a,b){ return String(a.name).localeCompare(String(b.name), "ar"); })
+        .map(function(f){ return '<option value="'+esc(f.id)+'">'+esc(f.name)+'</option>'; }).join("");
+      html += '<div class="card"><h2>طباعة تقرير PDF</h2>'+
+        '<div class="row2"><div class="field"><label>من تاريخ</label><input type="date" id="pr_from" value="'+ymd(first)+'"></div>'+
+        '<div class="field"><label>إلى تاريخ</label><input type="date" id="pr_to" value="'+ymd(now)+'"></div></div>'+
+        '<div class="field"><label>الصندوق</label><select id="pr_fund"><option value="">كل الصناديق</option>'+opts+'</select></div>'+
+        (can("reports") ? '<div class="field"><label>النوع</label><select id="pr_kind"><option value="all">تبرعات ومصروفات</option><option value="in">التبرعات فقط</option><option value="out">المصروفات فقط</option></select></div>' : '')+
+        '<label class="chk"><input type="checkbox" id="pr_sum"><span>ملخص فقط (من غير تفاصيل الحركات)</span></label>'+
+        '<div class="err" id="pr_err"></div>'+
+        '<button class="full-btn" id="pr_btn" style="margin-top:10px">إنشاء PDF</button>'+
+        '<p class="hint">'+(can("reports") ? 'بعد الإنشاء هتظهر شاشة المشاركة: احفظ الملف أو ابعته من موبايلك.' : 'التقرير هيشمل التبرعات اللي سجلتها انت بس. بعد الإنشاء احفظ الملف أو ابعته من موبايلك.')+'</p></div>';
+    }
 
-    html += '<div class="card"><h2>أداء العاملين (مبلغ ما تم تحصيله)</h2>';
-    var emps = Object.keys(byEmployee).sort(function(a,b){ return byEmployee[b]-byEmployee[a]; });
-    if(!emps.length) html += '<div class="empty">لا توجد تبرعات مسجلة بعد</div>';
-    else html += emps.map(function(e){
-      return '<div class="tx-row"><div class="who">'+esc(e)+'</div><div class="amt in">'+fmtNum(byEmployee[e])+' ج</div></div>';
-    }).join("");
-    html += '</div>';
+    if(can("reports")){
+      var byEmployee = {}, totalDonations = 0, totalExpenses = 0;
+      fundsCache.forEach(function(f){
+        totalDonations += Number(f.i)||0;
+        totalExpenses += Number(f.o)||0;
+        var emp = f.emp || {};
+        Object.keys(emp).forEach(function(n){ byEmployee[n] = (byEmployee[n]||0) + (Number(emp[n])||0); });
+      });
 
-    html += '<div class="card"><h2>تفصيل حسب الصندوق</h2>';
-    var fundRows = fundsCache.filter(function(f){ return f.i; });
-    if(!fundRows.length) html += '<div class="empty">لا توجد بيانات بعد</div>';
-    else html += fundRows.map(function(f){
-      return '<div class="tx-row"><div class="who">'+esc(f.name)+'</div><div class="amt in">'+fmtNum(f.i)+' ج</div></div>';
-    }).join("");
-    html += '</div>';
+      html += '<div class="card"><h2>الإجمالي العام</h2><div class="stat-row">'+
+        '<div class="stat"><div class="l">إجمالي التبرعات</div><div class="v">'+fmtNum(totalDonations)+'</div></div>'+
+        '<div class="stat"><div class="l">إجمالي المصروفات</div><div class="v">'+fmtNum(totalExpenses)+'</div></div></div></div>';
+
+      html += '<div class="card"><h2>أداء المتطوعين (مبلغ ما تم تحصيله)</h2>';
+      var emps = Object.keys(byEmployee).sort(function(a,b){ return byEmployee[b]-byEmployee[a]; });
+      if(!emps.length) html += '<div class="empty">لا توجد تبرعات مسجلة بعد</div>';
+      else html += emps.map(function(e){
+        return '<div class="tx-row"><div class="who">'+esc(e)+'</div><div class="amt in">'+fmtNum(byEmployee[e])+' ج</div></div>';
+      }).join("");
+      html += '</div>';
+
+      html += '<div class="card"><h2>تفصيل حسب الصندوق</h2>';
+      var fundRows = fundsCache.filter(function(f){ return f.i; });
+      if(!fundRows.length) html += '<div class="empty">لا توجد بيانات بعد</div>';
+      else html += fundRows.map(function(f){
+        return '<div class="tx-row"><div class="who">'+esc(f.name)+'</div><div class="amt in">'+fmtNum(f.i)+' ج</div></div>';
+      }).join("");
+      html += '</div>';
+    }
 
     c.innerHTML = html;
+    var pb = document.getElementById("pr_btn");
+    if(pb) pb.onclick = doPrintReport;
   }).catch(function(e){ c.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; });
 }
 
-/* ======================= إدارة العاملين ======================= */
+/* ======================= إدارة الفريق ======================= */
 function renderUsersScreen(){
   var c = document.getElementById("content");
-  c.innerHTML = '<button class="full-btn" id="addUserBtn" style="margin-bottom:12px">+ إضافة مشرف / عامل جديد</button>'+
-    '<div class="card"><h2>كل العاملين على البرنامج</h2><div id="usersList" class="loading">جاري التحميل...</div></div>';
+  c.innerHTML = '<button class="full-btn" id="addUserBtn" style="margin-bottom:12px">+ إضافة مشرف / متطوع جديد</button>'+
+    '<div class="card"><h2>المشرفون والمتطوعون</h2><div id="usersList" class="loading">جاري التحميل...</div></div>';
   document.getElementById("addUserBtn").onclick = openAddUserModal;
 
   api("GET","/users").then(function(d){
     var list = document.getElementById("usersList");
     if(!list) return;
     var rows = d.users;
-    if(!rows.length){ list.className=""; list.innerHTML='<div class="empty">لا يوجد مستخدمين</div>'; return; }
     list.className = "";
-    list.innerHTML = rows.map(function(u){
-      var roleLabel = {admin:"مدير",supervisor:"مشرف",employee:"عامل"}[u.role]||u.role;
+    if(!rows.length){ list.innerHTML='<div class="empty">لا يوجد مستخدمين</div>'; return; }
+    list.innerHTML = rows.map(function(u, i){
       return '<div class="user-row"><div><div class="nm">'+esc(u.displayName)+'</div>'+
         '<div class="meta">@'+esc(u.username)+'</div></div>'+
-        '<div style="display:flex;align-items:center;gap:8px">'+
-        '<span class="pill '+esc(u.role)+'">'+roleLabel+'</span>'+
-        (u.role!=="admin" ? '<button class="btn-flat" data-toggle="'+esc(u.username)+'" data-active="'+u.active+'" style="padding:5px 9px;font-size:11px">'+(u.active?'إيقاف':'تفعيل')+'</button>' : '')+
+        '<div class="btns">'+
+        '<span class="pill '+esc(u.role)+'">'+esc(ROLE_LABEL[u.role]||u.role)+'</span>'+
+        (u.role!=="admin" ? '<button class="btn-flat" data-perm-user="'+i+'" style="flex:none;padding:5px 9px;font-size:11px">الصلاحيات</button>'+
+          '<button class="btn-flat" data-toggle="'+esc(u.username)+'" data-active="'+u.active+'" style="flex:none;padding:5px 9px;font-size:11px">'+(u.active?'إيقاف':'تفعيل')+'</button>' : '')+
         '</div></div>';
     }).join("");
     Array.prototype.forEach.call(list.querySelectorAll("[data-toggle]"), function(btn){
@@ -600,8 +1058,11 @@ function renderUsersScreen(){
         var active = btn.getAttribute("data-active")==="true";
         btn.disabled = true;
         api("PATCH","/users/"+encodeURIComponent(id),{active: !active}).then(function(){ renderUsersScreen(); })
-          .catch(function(e){ btn.disabled = false; alert(e.message); });
+          .catch(function(e){ btn.disabled = false; toast(e.message); });
       };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-perm-user]"), function(btn){
+      btn.onclick = function(){ openPermsModal(rows[Number(btn.getAttribute("data-perm-user"))]); };
     });
   }).catch(function(e){
     var list = document.getElementById("usersList");
@@ -609,17 +1070,40 @@ function renderUsersScreen(){
   });
 }
 
+function openPermsModal(u){
+  var root = document.getElementById("modalRoot");
+  root.innerHTML =
+    '<div class="overlay"><div class="modal"><h3>صلاحيات: '+esc(u.displayName)+'</h3>'+
+    '<p class="hint">'+esc(ROLE_LABEL[u.role]||"")+' - حدد اللي يقدر يعمله</p>'+
+    '<div id="pm_boxes">'+permBoxes(u.perms || {})+'</div>'+
+    '<div class="err" id="pm_err"></div>'+
+    '<div class="row-actions"><button class="btn-flat" id="pm_cancel">إلغاء</button>'+
+    '<button class="full-btn" id="pm_save">حفظ</button></div></div></div>';
+  document.getElementById("pm_cancel").onclick = function(){ root.innerHTML=""; };
+  document.getElementById("pm_save").onclick = function(){
+    var btn = document.getElementById("pm_save"); btn.disabled = true;
+    api("PATCH","/users/"+encodeURIComponent(u.username),{perms: readPerms(document.getElementById("pm_boxes"))}).then(function(){
+      root.innerHTML = ""; toast("تم حفظ الصلاحيات ✓"); renderUsersScreen();
+    }).catch(function(e){ btn.disabled = false; showErr("pm_err", e.message); });
+  };
+}
+
 function openAddUserModal(){
   var root = document.getElementById("modalRoot");
   root.innerHTML =
-    '<div class="overlay"><div class="modal"><h3>إضافة مشرف / عامل</h3>'+
-    '<div class="field"><label>الاسم الكامل</label><input id="au_name"></div>'+
+    '<div class="overlay"><div class="modal"><h3>إضافة مشرف / متطوع جمع تبرعات</h3>'+
+    '<div class="field"><label>الاسم الكامل</label><input id="au_name" placeholder="مثلاً: جمعة فوزى"></div>'+
     '<div class="field"><label>اسم المستخدم (دخول)</label><input id="au_user" autocomplete="off"></div>'+
     '<div class="field"><label>كلمة السر</label><input id="au_pass" type="password"></div>'+
-    '<div class="field"><label>الدور</label><select id="au_role"><option value="employee">عامل (تحصيل تبرعات)</option><option value="supervisor">مشرف (إدارة الصناديق)</option></select></div>'+
+    '<div class="field"><label>الدور</label><select id="au_role"><option value="employee">متطوع جمع تبرعات</option><option value="supervisor">مشرف (إدارة الصناديق)</option></select></div>'+
+    '<div class="field"><label>الصلاحيات</label><div id="au_perms"></div></div>'+
     '<div class="err" id="au_err"></div>'+
     '<div class="row-actions"><button class="btn-flat" id="au_cancel">إلغاء</button>'+
     '<button class="full-btn" id="au_save">إضافة</button></div></div></div>';
+  var box = document.getElementById("au_perms");
+  function fillPerms(){ box.innerHTML = permBoxes(PERM_DEFAULTS[document.getElementById("au_role").value]); }
+  fillPerms();
+  document.getElementById("au_role").onchange = fillPerms;
   document.getElementById("au_cancel").onclick = function(){ root.innerHTML=""; };
   document.getElementById("au_save").onclick = function(){
     var name = document.getElementById("au_name").value.trim();
@@ -630,13 +1114,334 @@ function openAddUserModal(){
     if(!name||!user||!pass){ showErr("au_err","لازم تملى كل الحقول"); return; }
     if(pass.length<6){ showErr("au_err","كلمة السر 6 حروف/أرقام على الأقل"); return; }
     var btn = document.getElementById("au_save"); btn.disabled = true;
-    api("POST","/users",{name:name, username:user, password:pass, role:role}).then(function(){
+    api("POST","/users",{name:name, username:user, password:pass, role:role, perms:readPerms(box)}).then(function(){
       root.innerHTML="";
       renderUsersScreen();
     }).catch(function(e){ btn.disabled = false; showErr("au_err","خطأ: " + e.message); });
   };
 }
 
+/* ======================= أدوات مشتركة (نوافذ التأكيد والسبب) ======================= */
+function reasonModal(title, msg, okLabel, required, onOk){
+  var root = document.getElementById("modalRoot");
+  root.innerHTML =
+    '<div class="overlay"><div class="modal"><h3>'+esc(title)+'</h3>'+
+    '<p class="hint" style="text-align:right">'+esc(msg)+'</p>'+
+    '<div class="field"><label>'+(required?'السبب (مطلوب)':'السبب (اختياري)')+'</label><input id="rs_txt" maxlength="200"></div>'+
+    '<div class="err" id="rs_err"></div>'+
+    '<div class="row-actions"><button class="btn-flat" id="rs_cancel">إلغاء</button>'+
+    '<button class="btn-danger" id="rs_ok" style="flex:1">'+esc(okLabel)+'</button></div></div></div>';
+  document.getElementById("rs_cancel").onclick = function(){ root.innerHTML = ""; };
+  document.getElementById("rs_ok").onclick = function(){
+    var reason = document.getElementById("rs_txt").value.trim();
+    document.getElementById("rs_err").style.display = "none";
+    if(required && !reason){ showErr("rs_err", "اكتب السبب"); return; }
+    var btn = document.getElementById("rs_ok"); btn.disabled = true;
+    onOk(reason).then(function(){ root.innerHTML = ""; }).catch(function(e){ btn.disabled = false; showErr("rs_err", e.message); });
+  };
+}
+function confirmModal(title, msg, okLabel, onOk){
+  var root = document.getElementById("modalRoot");
+  root.innerHTML =
+    '<div class="overlay"><div class="modal"><h3>'+esc(title)+'</h3>'+
+    '<p class="hint" style="text-align:right;font-size:12.5px">'+esc(msg)+'</p>'+
+    '<div class="err" id="cf_err"></div>'+
+    '<div class="row-actions"><button class="btn-flat" id="cf_cancel">إلغاء</button>'+
+    '<button class="btn-danger" id="cf_ok" style="flex:1">'+esc(okLabel)+'</button></div></div></div>';
+  document.getElementById("cf_cancel").onclick = function(){ root.innerHTML = ""; };
+  document.getElementById("cf_ok").onclick = function(){
+    var btn = document.getElementById("cf_ok"); btn.disabled = true;
+    onOk().then(function(){ root.innerHTML = ""; }).catch(function(e){ btn.disabled = false; showErr("cf_err", e.message); });
+  };
+}
+function catLabel(key){ var c = CATS.filter(function(x){ return x.key===key; })[0]; return c ? c.label : ""; }
+
+/* ======================= تعديل حركة + تاريخ التعديلات ======================= */
+function openEditTxModal(fund, t){
+  var root = document.getElementById("modalRoot");
+  root.innerHTML =
+    '<div class="overlay"><div class="modal"><h3>تعديل '+(t.t==="in"?"التبرع":"المصروف")+' - '+esc(fund.name)+'</h3>'+
+    '<div class="field"><label>المبلغ</label><input id="et_amt" type="number" inputmode="decimal" value="'+esc(t.amount)+'"></div>'+
+    '<div class="field"><label>'+(t.t==="in"?"اسم المتبرع":"بيان المصروف")+'</label><input id="et_note" value="'+esc(t.note||"")+'"></div>'+
+    '<div class="field"><label>سبب التعديل (اختياري)</label><input id="et_reason" maxlength="200"></div>'+
+    '<p class="hint">اسمك ووقت التعديل هيتسجلوا، والقيم القديمة هتفضل محفوظة في "السجل".</p>'+
+    '<div class="err" id="et_err"></div>'+
+    '<div class="row-actions"><button class="btn-flat" id="et_cancel">إلغاء</button>'+
+    '<button class="full-btn" id="et_save">حفظ التعديل</button></div></div></div>';
+  document.getElementById("et_cancel").onclick = function(){ root.innerHTML = ""; };
+  document.getElementById("et_save").onclick = function(){
+    var amt = Number(document.getElementById("et_amt").value);
+    var note = document.getElementById("et_note").value.trim();
+    var reason = document.getElementById("et_reason").value.trim();
+    document.getElementById("et_err").style.display = "none";
+    if(!amt || amt<=0){ showErr("et_err", "اكتب مبلغ صحيح"); return; }
+    var body = {};
+    if(amt !== t.amount) body.amount = amt;
+    if(note !== (t.note||"")) body.note = note;
+    if(!Object.keys(body).length){ showErr("et_err", "مغيّرتش أي حاجة"); return; }
+    if(reason) body.reason = reason;
+    var btn = document.getElementById("et_save"); btn.disabled = true;
+    api("PATCH", "/funds/"+fund.id+"/tx/"+t.id, body).then(function(){
+      root.innerHTML = ""; toast("تم التعديل ✓"); return afterChange();
+    }).catch(function(e){ btn.disabled = false; showErr("et_err", e.message); });
+  };
+}
+function showTxHistory(t){
+  var root = document.getElementById("modalRoot");
+  var rows = (t.hist || []).slice().reverse().map(function(h){
+    var txt;
+    if(h.a==="edit") txt = esc(h.by)+' عدّل الحركة. كانت: '+fmtNum(h.amount)+' ج'+(h.note?' - '+esc(h.note):'')+(h.reason?' | السبب: '+esc(h.reason):'');
+    else if(h.a==="delete") txt = esc(h.by)+' حذف الحركة (نقلها للسلة)'+(h.reason?' | السبب: '+esc(h.reason):'');
+    else txt = esc(h.by)+' استرجع الحركة من السلة';
+    return '<div class="user-row" style="display:block"><div class="nm" style="font-size:12.5px;font-weight:600">'+txt+'</div><div class="meta">'+fmtTime(h.ts)+'</div></div>';
+  }).join("");
+  root.innerHTML =
+    '<div class="overlay"><div class="modal"><h3>تاريخ الحركة</h3>'+
+    '<div class="meta" style="font-size:11px;color:var(--muted);margin-bottom:6px">سجّلها '+esc(t.who||"-")+' - '+fmtTime(t.ts)+'</div>'+
+    (rows || '<div class="empty">مفيش تعديلات</div>')+
+    '<div class="row-actions"><button class="btn-flat" id="hs_close">إغلاق</button></div></div></div>';
+  document.getElementById("hs_close").onclick = function(){ root.innerHTML = ""; };
+}
+
+/* ======================= سلة المحذوفات ======================= */
+function renderTrashScreen(){
+  var c = document.getElementById("content");
+  c.innerHTML = '<div class="card"><h2>سلة المحذوفات</h2>'+
+    '<div class="warn-box">اللي هنا مش بيتحسب في الإجماليات ولا التقارير. تقدر ترجّعه في أي وقت. '+(currentUser.role==="admin"?'الحذف النهائي للمدير بس، ومبيتراجعش عنه.':'')+'</div>'+
+    '<div id="trashBody" class="loading">جاري التحميل...</div></div>';
+  api("GET", "/trash").then(function(d){
+    var box = document.getElementById("trashBody");
+    if(!box || currentTab!=="trash") return;
+    box.className = "";
+    var isAdmin = currentUser.role==="admin";
+    var html = "";
+    if(!d.funds.length && !d.tx.length){ box.innerHTML = '<div class="empty">السلة فاضية</div>'; return; }
+    if(d.funds.length){
+      html += '<div class="sub-title">صناديق محذوفة</div>';
+      html += d.funds.map(function(f, i){
+        return '<div class="user-row" style="align-items:flex-start;gap:8px"><div><div class="nm">'+esc(f.name)+'</div>'+
+          '<div class="meta">'+esc(catLabel(f.category))+' - تبرعات '+fmtNum(f.i)+' ج - مصروفات '+fmtNum(f.o)+' ج</div>'+
+          '<div class="tx-meta del">حذفه '+esc(f.delBy||"")+' - '+fmtTime(f.delAt)+(f.delReason?' | '+esc(f.delReason):'')+'</div></div>'+
+          '<div class="btns">'+(can("manageFunds")?'<button class="mini-btn" data-rf="'+i+'">استرجاع</button>':'')+
+          (isAdmin?'<button class="mini-btn mini-del" data-pf="'+i+'">حذف نهائي</button>':'')+'</div></div>';
+      }).join("");
+    }
+    if(d.tx.length){
+      html += '<div class="sub-title">حركات محذوفة</div>';
+      html += d.tx.map(function(t, i){
+        return '<div class="user-row" style="align-items:flex-start;gap:8px"><div><div class="nm">'+(t.t==="in"?'+':'-')+fmtNum(t.amount)+' ج <span style="font-weight:400;color:var(--muted)">- '+esc(t.fundName)+'</span></div>'+
+          '<div class="meta">'+esc(t.who||"")+(t.note?' - '+esc(t.note):'')+' - '+fmtTime(t.ts)+'</div>'+
+          '<div class="tx-meta del">حذفها '+esc(t.delBy||"")+' - '+fmtTime(t.delAt)+(t.delReason?' | '+esc(t.delReason):'')+'</div></div>'+
+          '<div class="btns"><button class="mini-btn" data-rt="'+i+'">استرجاع</button>'+
+          (isAdmin?'<button class="mini-btn mini-del" data-pt="'+i+'">حذف نهائي</button>':'')+'</div></div>';
+      }).join("");
+    }
+    box.innerHTML = html;
+    function again(){ renderTrashScreen(); }
+    Array.prototype.forEach.call(box.querySelectorAll("[data-rf]"), function(b){
+      b.onclick = function(){
+        var f = d.funds[Number(b.getAttribute("data-rf"))]; b.disabled = true;
+        api("POST", "/funds/"+f.id+"/restore", {}).then(function(){ toast("اتسترجع الصندوق ✓"); again(); }).catch(function(e){ b.disabled = false; toast(e.message); });
+      };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-pf]"), function(b){
+      b.onclick = function(){
+        var f = d.funds[Number(b.getAttribute("data-pf"))];
+        confirmModal("حذف نهائي للصندوق", "الصندوق «"+f.name+"» وكل حركاته هيتمسحوا نهائيًا. هتتاخد نسخة أمان قبل الحذف، والعملية هتتسجل في سجل التدقيق.", "حذف نهائي", function(){
+          return api("POST", "/trash/purge", {type:"fund", fundId:f.id}).then(function(){ toast("اتحذف نهائيًا"); again(); });
+        });
+      };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-rt]"), function(b){
+      b.onclick = function(){
+        var t = d.tx[Number(b.getAttribute("data-rt"))]; b.disabled = true;
+        api("POST", "/funds/"+t.fundId+"/tx/"+t.id+"/restore", {}).then(function(){ toast("تم الاسترجاع ✓"); again(); }).catch(function(e){ b.disabled = false; toast(e.message); });
+      };
+    });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-pt]"), function(b){
+      b.onclick = function(){
+        var t = d.tx[Number(b.getAttribute("data-pt"))];
+        confirmModal("حذف نهائي للحركة", (t.t==="in"?"التبرع ":"المصروف ")+fmtNum(t.amount)+" ج هيتمسح نهائيًا ومش هتقدر ترجّعه. العملية هتتسجل في سجل التدقيق.", "حذف نهائي", function(){
+          return api("POST", "/trash/purge", {type:"tx", fundId:t.fundId, txId:t.id}).then(function(){ toast("اتحذفت نهائيًا"); again(); });
+        });
+      };
+    });
+  }).catch(function(e){
+    var box = document.getElementById("trashBody");
+    if(box){ box.className = ""; box.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; }
+  });
+}
+
+/* ======================= سجل التدقيق ======================= */
+var ACT_LABEL = {
+  fund_add:"إضافة صندوق", fund_edit:"تعديل اسم صندوق", fund_status:"تغيير حالة صندوق", fund_delete:"حذف صندوق (للسلة)",
+  fund_restore:"استرجاع صندوق", fund_purge:"حذف نهائي لصندوق",
+  tx_edit:"تعديل حركة", tx_delete:"حذف حركة (للسلة)", tx_restore:"استرجاع حركة", tx_purge:"حذف نهائي لحركة",
+  user_add:"إضافة مستخدم", user_active:"تفعيل / إيقاف مستخدم", user_perms:"تغيير صلاحيات",
+  backup_create:"نسخة احتياطية", backup_download:"تنزيل نسخة", backup_restore:"استرجاع نسخة", admin_recover:"استرجاع حساب المدير"
+};
+function actClass(a){
+  if(/_delete$|_purge$|backup_restore|admin_recover/.test(a)) return "bad";
+  if(/_restore$/.test(a)) return "good";
+  return "";
+}
+var auditCursor = null;
+function renderAuditScreen(){
+  var c = document.getElementById("content");
+  auditCursor = null;
+  c.innerHTML = '<div class="card"><h2>سجل التدقيق</h2>'+
+    '<div class="warn-box">كل تعديل أو حذف أو استرجاع على الصناديق والحركات والمستخدمين والنسخ الاحتياطية، باسم اللي عمله ووقته. السجل للقراءة بس.</div>'+
+    '<div id="auditList" class="loading">جاري التحميل...</div><div id="auditMore"></div></div>';
+  loadAudit(true);
+}
+function loadAudit(first){
+  api("GET", "/audit" + (auditCursor ? "?cursor="+encodeURIComponent(auditCursor) : "")).then(function(d){
+    var list = document.getElementById("auditList");
+    if(!list || currentTab!=="audit") return;
+    list.className = "";
+    var html = d.items.map(function(e){
+      var cls = actClass(e.act);
+      return '<div class="user-row" style="display:block"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center">'+
+        '<div class="nm">'+esc(e.tg||"")+'</div><span class="pill '+cls+'">'+esc(ACT_LABEL[e.act]||e.act)+'</span></div>'+
+        (e.d?'<div class="meta" style="margin-top:3px">'+esc(e.d)+'</div>':'')+
+        '<div class="meta" style="margin-top:2px">'+esc(e.by)+' - '+fmtTime(e.ts)+'</div></div>';
+    }).join("");
+    if(first) list.innerHTML = html || '<div class="empty">لا توجد أحداث بعد</div>';
+    else list.insertAdjacentHTML("beforeend", html);
+    auditCursor = d.cursor || null;
+    var more = document.getElementById("auditMore");
+    more.innerHTML = auditCursor ? '<button class="btn-flat" id="auditMoreBtn" style="width:100%;margin-top:10px">عرض المزيد</button>' : '';
+    var mb = document.getElementById("auditMoreBtn");
+    if(mb) mb.onclick = function(){ mb.disabled = true; loadAudit(false); };
+  }).catch(function(e){
+    var list = document.getElementById("auditList");
+    if(list){ list.className = ""; list.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; }
+  });
+}
+
+/* ======================= النسخ الاحتياطي ======================= */
+var KIND_LABEL = {auto:"تلقائية يومية", manual:"يدوية", safety:"أمان (قبل استرجاع/حذف نهائي)"};
+function fmtSize(b){ b = Number(b)||0; return b>1048576 ? (b/1048576).toFixed(1)+" م.ب" : Math.max(1,Math.round(b/1024))+" ك.ب"; }
+function saveJson(text, filename){
+  var C = window.Capacitor;
+  var native = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Filesystem && C.Plugins.Share;
+  if(native){
+    var b64 = btoa(unescape(encodeURIComponent(text)));
+    return C.Plugins.Filesystem.writeFile({path:filename, data:b64, directory:"CACHE"}).then(function(r){
+      return C.Plugins.Share.share({title:filename, url:r.uri, dialogTitle:"احفظ النسخة الاحتياطية في مكان آمن"});
+    });
+  }
+  var blob = new Blob([text], {type:"application/json"});
+  var file = new File([blob], filename, {type:"application/json"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    return navigator.share({files:[file], title:filename});
+  }
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+  return Promise.resolve();
+}
+function saveJsonDone(p){
+  return p.then(function(){ clearBusy(); }, function(e){
+    clearBusy();
+    var m = String((e && e.message) || e || "");
+    if(/cancel|abort/i.test(m)) return;
+    toast(m || "حصل خطأ في حفظ الملف");
+  });
+}
+function pickJsonFile(cb){
+  var inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json"; inp.style.display = "none";
+  document.body.appendChild(inp);
+  inp.onchange = function(){
+    var f = inp.files && inp.files[0];
+    inp.remove();
+    if(!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){ cb(null, String(rd.result)); };
+    rd.onerror = function(){ cb(new Error("تعذر قراءة الملف")); };
+    rd.readAsText(f);
+  };
+  inp.click();
+}
+function afterRestore(){
+  toast("تم الاسترجاع ✓");
+  lastFundsJson = "";
+  return refreshMe().catch(function(){}).then(function(){ switchTab("funds"); });
+}
+function renderBackupScreen(){
+  var c = document.getElementById("content");
+  c.innerHTML =
+    '<div class="card"><h2>النسخ الاحتياطي</h2>'+
+    '<div class="warn-box">السيرفر بياخد نسخة تلقائية مرة كل يوم (عند أول تعديل في اليوم) ويحتفظ بآخر 14 نسخة. تقدر كمان تاخد نسخة يدوية أو تنزّل نسخة على موبايلك. ملف النسخة فيه بيانات الحسابات (كلمات السر مشفّرة)، فاحفظه في مكان آمن.</div>'+
+    '<button class="full-btn" id="bk_now">+ نسخة احتياطية الآن</button>'+
+    '<div class="row-actions"><button class="btn-flat" id="bk_dl">تنزيل نسخة على الجهاز</button>'+
+    '<button class="btn-flat" id="bk_file">استرجاع من ملف</button></div></div>'+
+    '<div class="card"><h2>النسخ المحفوظة على السيرفر</h2><div id="bkList" class="loading">جاري التحميل...</div></div>';
+
+  document.getElementById("bk_now").onclick = function(){
+    var b = this; b.disabled = true;
+    api("POST", "/backups", {}).then(function(){ toast("تم عمل النسخة ✓"); renderBackupScreen(); })
+      .catch(function(e){ b.disabled = false; toast(e.message); });
+  };
+  document.getElementById("bk_dl").onclick = function(){
+    setBusy("جاري تجهيز النسخة...");
+    saveJsonDone(api("GET", "/backup/export").then(function(d){
+      return saveJson(JSON.stringify(d), "daawo-backup-" + ymd(new Date()) + ".json");
+    }));
+  };
+  document.getElementById("bk_file").onclick = function(){
+    pickJsonFile(function(err, text){
+      if(err){ toast(err.message); return; }
+      var snap;
+      try{ snap = JSON.parse(text); }catch(e){ toast("الملف ده مش نسخة احتياطية صالحة"); return; }
+      if(!snap || snap.v!==1 || !snap.data){ toast("الملف ده مش نسخة احتياطية صالحة"); return; }
+      var nF = (snap.data.funds||[]).length;
+      confirmModal("استرجاع من ملف", "هتتبدّل كل البيانات الحالية (الصناديق والحركات والمستخدمين) ببيانات الملف ("+fmtNum(nF)+" صندوق، بتاريخ "+fmtD(snap.ts||0)+"). هتتاخد نسخة أمان من الوضع الحالي الأول.", "استرجاع", function(){
+        return api("POST", "/restore", {snapshot:snap}).then(afterRestore);
+      });
+    });
+  };
+
+  api("GET", "/backups").then(function(d){
+    var list = document.getElementById("bkList");
+    if(!list || currentTab!=="backup") return;
+    list.className = "";
+    var rows = d.backups;
+    if(!rows.length){ list.innerHTML = '<div class="empty">مفيش نسخ لسه. أول نسخة تلقائية هتتاخد عند أول تعديل.</div>'; return; }
+    list.innerHTML = rows.map(function(b, i){
+      return '<div class="user-row" style="align-items:flex-start;gap:8px"><div>'+
+        '<div class="nm">'+fmtD(b.ts)+' - '+fmtT(b.ts)+'</div>'+
+        '<div class="meta"><span class="pill '+(b.kind==="safety"?'bad':(b.kind==="manual"?'good':''))+'">'+esc(KIND_LABEL[b.kind]||b.kind)+'</span> '+esc(b.by||"")+'</div>'+
+        '<div class="meta">'+fmtNum(b.funds)+' صندوق - '+fmtNum(b.tx)+' حركة - '+fmtSize(b.size)+'</div></div>'+
+        '<div class="btns"><button class="mini-btn" data-bd="'+i+'">تنزيل</button>'+
+        '<button class="mini-btn mini-del" data-br="'+i+'">استرجاع</button></div></div>';
+    }).join("");
+    Array.prototype.forEach.call(list.querySelectorAll("[data-bd]"), function(btn){
+      btn.onclick = function(){
+        var b = rows[Number(btn.getAttribute("data-bd"))];
+        setBusy("جاري تجهيز الملف...");
+        saveJsonDone(api("GET", "/backups/"+b.id+"/download").then(function(snap){
+          return saveJson(JSON.stringify(snap), "daawo-backup-" + b.id + ".json");
+        }));
+      };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll("[data-br]"), function(btn){
+      btn.onclick = function(){
+        var b = rows[Number(btn.getAttribute("data-br"))];
+        confirmModal("استرجاع نسخة", "هترجّع كل البيانات لحالتها يوم "+fmtD(b.ts)+" الساعة "+fmtT(b.ts)+" ("+fmtNum(b.funds)+" صندوق، "+fmtNum(b.tx)+" حركة). أي حاجة اتسجلت بعد كده هتختفي من البرنامج، بس هتتاخد نسخة أمان من الوضع الحالي قبل الاسترجاع.", "استرجاع", function(){
+          return api("POST", "/backups/"+b.id+"/restore", {}).then(afterRestore);
+        });
+      };
+    });
+  }).catch(function(e){
+    var list = document.getElementById("bkList");
+    if(list){ list.className = ""; list.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; }
+  });
+}
+
+setupBackHandler();
 boot();
 </script>
 </body>
