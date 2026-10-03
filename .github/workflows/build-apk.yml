@@ -18,6 +18,11 @@ jobs:
           distribution: temurin
           java-version: 17
       - run: npm install
+      - name: Copy PDF libraries
+        run: |
+          mkdir -p www/lib
+          cp node_modules/jspdf/dist/jspdf.umd.min.js www/lib/
+          cp node_modules/html2canvas/dist/html2canvas.min.js www/lib/
       - run: npx cap add android
       - name: Set app icon
         run: |
