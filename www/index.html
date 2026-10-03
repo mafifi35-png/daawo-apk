@@ -30,9 +30,6 @@
   .role-badge{ background:var(--panel-2); border:1px solid var(--line); border-radius:20px; padding:2px 10px; font-size:10.5px; color:var(--gold); }
   .logout-btn{ position:absolute; left:0; top:0; background:none; border:1px solid var(--line); color:var(--muted); border-radius:10px; padding:6px 10px; font-size:11px; font-family:inherit; }
 
-  .tabbar{ display:flex; gap:5px; margin:12px 0 14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:4px; overflow-x:auto; }
-  .tab{ flex:1 0 auto; text-align:center; padding:8px 10px; border-radius:9px; font-size:10.3px; font-weight:700; color:var(--muted); cursor:pointer; white-space:nowrap; }
-  .tab.active{ background:var(--gold); color:#1a1206; }
 
   .card{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:14px; }
   .card h2{ margin:0 0 10px; font-size:13.5px; font-weight:800; color:var(--gold); }
@@ -111,6 +108,29 @@
   .pill.good{ color:var(--success); border-color:var(--success); }
   .sub-title{ font-size:12px; color:var(--gold); font-weight:800; margin:14px 0 4px; }
   .warn-box{ font-size:11.5px; color:var(--muted); background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:9px 11px; line-height:1.7; margin-bottom:10px; }
+
+  .settings-btn{ position:absolute; right:0; top:0; background:none; border:1px solid var(--line); color:var(--gold); border-radius:10px; padding:5px 10px; font-size:15px; line-height:1.25; font-family:inherit; cursor:pointer; }
+  .navbar{ display:flex; align-items:center; gap:10px; margin:12px 0 14px; }
+  .navbar:empty{ display:none; }
+  .navbar .home-btn{ background:var(--panel); border:1px solid var(--line); color:var(--gold); border-radius:10px; padding:7px 12px; font-size:12.5px; font-weight:700; font-family:inherit; cursor:pointer; white-space:nowrap; }
+  .navbar .ttl{ font-size:15px; font-weight:800; color:var(--text); }
+  .sect-title{ font-size:11.5px; color:var(--muted); font-weight:700; margin:18px 2px 8px; display:flex; align-items:center; gap:8px; }
+  .sect-title:first-child{ margin-top:6px; }
+  .sect-title::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .tiles{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .tile{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px 10px; text-align:center; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-height:112px; font-family:inherit; color:var(--text); -webkit-tap-highlight-color:transparent; }
+  .tile:active{ transform:scale(.97); border-color:var(--gold-dim); }
+  .tile .ic{ width:46px; height:46px; border-radius:14px; background:var(--panel-2); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:23px; flex:none; }
+  .tile .tl{ font-weight:800; font-size:13.5px; }
+  .tile .ds{ font-size:10.5px; color:var(--muted); line-height:1.5; }
+  .tile.span{ grid-column:1 / -1; flex-direction:row; justify-content:flex-start; text-align:right; gap:14px; min-height:0; padding:12px 14px; }
+  .tile.span .tx{ display:flex; flex-direction:column; gap:2px; }
+  .opt-row{ display:flex; gap:8px; }
+  .opt-row button{ flex:1; background:var(--panel-2); border:1px solid var(--line); color:var(--muted); padding:9px 2px; border-radius:10px; font-size:12px; font-weight:700; font-family:inherit; cursor:pointer; }
+  .opt-row button.active{ background:var(--gold); color:#1a1206; border-color:var(--gold); }
+  .info-row{ display:flex; justify-content:space-between; align-items:center; padding:9px 2px; border-bottom:1px solid var(--line); font-size:13px; }
+  .info-row:last-child{ border-bottom:none; }
+  .info-row .k{ color:var(--muted); font-size:12px; }
 </style>
 </head>
 <body>
@@ -122,7 +142,7 @@
 
   <div id="authScreen"></div>
   <div id="appScreen" style="display:none">
-    <div class="tabbar" id="tabbar"></div>
+    <div class="navbar" id="navbar"></div>
     <div id="content"></div>
   </div>
   <div id="modalRoot"></div>
@@ -214,7 +234,7 @@ function readPerms(box){
 
 /* ======================= حالة التطبيق ======================= */
 var currentUser = null;      /* {uid, username, displayName, role, perms} */
-var currentTab = "funds";
+var currentTab = "home";
 var catFilter = "patient";
 var openFundId = null;
 var fundsCache = [];
@@ -249,10 +269,11 @@ function refreshMe(){
     var changed = JSON.stringify(u.perms)!==JSON.stringify(currentUser.perms) || u.role!==currentUser.role || u.displayName!==currentUser.displayName;
     currentUser.perms = u.perms; currentUser.role = u.role; currentUser.displayName = u.displayName;
     if(changed){
-      renderHeader(); renderTabs();
-      if(!tabAllowed(currentTab)) switchTab("funds");
+      renderHeader();
+      if(!tabAllowed(currentTab)) switchTab("home");
+      else if(currentTab==="home") renderHome();
       else if(currentTab==="funds"){ if(openFundId) renderFundDetail(openFundId); else renderFundsList(); }
-      else switchTab(currentTab);
+      else if(currentTab!=="settings") switchTab(currentTab);
     }
   });
 }
@@ -283,7 +304,7 @@ function handleBack(){
     return false;
   }
   if(openFundId){ openFundId = null; renderFundsList(); return true; }
-  if(currentTab!=="funds"){ switchTab("funds"); return true; }
+  if(currentTab!=="home"){ switchTab("home"); return true; }
   return false;
 }
 var lastBackAt = 0;
@@ -444,14 +465,14 @@ function startSession(u){
   currentUser = { uid:u.username, username:u.username, displayName:u.displayName, role:u.role, perms:u.perms || {} };
   document.getElementById("authScreen").style.display = "none";
   document.getElementById("appScreen").style.display = "block";
-  currentTab = "funds"; openFundId = null; lastFundsJson = "";
+  currentTab = "home"; openFundId = null; lastFundsJson = "";
   renderHeader();
-  renderTabs();
-  switchTab("funds");
+  switchTab("home");
   startPolling();
 }
 
 function boot(){
+  applyZoom();
   token = loadToken();
   if(!token){ showLoggedOut(); return; }
   renderAuthLoading("جاري تحميل بياناتك...");
@@ -474,37 +495,77 @@ function renderHeader(){
   var roleLabel = ROLE_LABEL[currentUser.role] || "";
   document.getElementById("headerBox").innerHTML =
     '<button class="logout-btn" id="logoutBtn">خروج</button>'+
+    '<button class="settings-btn" id="settingsBtn" aria-label="الإعدادات">⚙</button>'+
     '<h1>داوو مرضاكم بالصدقة</h1><div class="brand">برويش</div>'+
     '<div class="who">'+esc(currentUser.displayName)+' <span class="role-badge">'+esc(roleLabel)+'</span></div>';
   document.getElementById("logoutBtn").onclick = forceLogout;
+  document.getElementById("settingsBtn").onclick = function(){ switchTab("settings"); };
 }
 
 /* ======================= التنقل بين التابات ======================= */
+/* كل الشاشات: المفتاح، الاسم، الأيقونة، الوصف، والمجموعة اللي بتظهر فيها في الصفحة الرئيسية */
+var SCREENS = {
+  funds:    {label:"الصناديق",         icon:"💰", desc:"تسجيل التبرعات والمصروفات", group:"daily"},
+  reports:  {label:"التقارير",          icon:"📊", desc:"إجماليات وطباعة PDF",       group:"daily"},
+  users:    {label:"الفريق",            icon:"👥", desc:"المشرفين والمتطوعين",       group:"admin"},
+  trash:    {label:"سلة المحذوفات",     icon:"🗑", desc:"استرجاع المحذوف",           group:"admin"},
+  audit:    {label:"سجل التدقيق",       icon:"🛡", desc:"مين عمل إيه ومتى",          group:"admin"},
+  backup:   {label:"النسخ الاحتياطي",   icon:"💾", desc:"نسخ واسترجاع البيانات",     group:"admin"},
+  settings: {label:"الإعدادات",         icon:"⚙", desc:"الحساب وكلمة السر وحجم الخط", group:"account"}
+};
+var GROUPS = [
+  {key:"daily",   title:"العمل اليومي"},
+  {key:"admin",   title:"الإدارة"},
+  {key:"account", title:"الحساب"}
+];
 function tabsFor(){
-  var tabs = [{key:"funds", label:"الصناديق"}];
-  if(can("reports") || can("print")) tabs.push({key:"reports", label:"التقارير"});
-  if(can("editTx")) tabs.push({key:"trash", label:"السلة"});
-  if(currentUser.role==="admin"){
-    tabs.push({key:"users", label:"الفريق"});
-    tabs.push({key:"audit", label:"التدقيق"});
-    tabs.push({key:"backup", label:"النسخ"});
-  }
-  return tabs;
+  var keys = ["funds"];
+  if(can("reports") || can("print")) keys.push("reports");
+  if(currentUser.role==="admin") keys.push("users");
+  if(can("editTx")) keys.push("trash");
+  if(currentUser.role==="admin"){ keys.push("audit"); keys.push("backup"); }
+  keys.push("settings");
+  return keys.map(function(k){ var o = SCREENS[k]; return {key:k, label:o.label, icon:o.icon, desc:o.desc, group:o.group}; });
 }
-function tabAllowed(key){ return tabsFor().some(function(t){ return t.key===key; }); }
-function renderTabs(){
-  var bar = document.getElementById("tabbar");
-  bar.innerHTML = tabsFor().map(function(t){
-    return '<div class="tab'+(t.key===currentTab?' active':'')+'" data-tab="'+t.key+'">'+t.label+'</div>';
-  }).join("");
-  Array.prototype.forEach.call(bar.querySelectorAll(".tab"), function(el){
-    el.onclick = function(){ switchTab(el.getAttribute("data-tab")); };
+function tabAllowed(key){ return key==="home" || tabsFor().some(function(t){ return t.key===key; }); }
+
+/* الشريط اللي فوق: زر الرئيسية + اسم الشاشة (مخفي في الصفحة الرئيسية) */
+function renderNav(){
+  var bar = document.getElementById("navbar");
+  if(currentTab==="home"){ bar.innerHTML = ""; return; }
+  var sc = SCREENS[currentTab] || {label:""};
+  bar.innerHTML = '<button class="home-btn" id="homeBtn">‹ الرئيسية</button><div class="ttl">'+esc(sc.icon||"")+' '+esc(sc.label)+'</div>';
+  document.getElementById("homeBtn").onclick = function(){ switchTab("home"); };
+}
+
+/* الصفحة الرئيسية: كل الأزرار متقسمة مجموعات */
+function renderHome(){
+  var items = tabsFor();
+  var html = "";
+  GROUPS.forEach(function(g){
+    var list = items.filter(function(t){ return t.group===g.key; });
+    if(!list.length) return;
+    html += '<div class="sect-title">'+g.title+'</div><div class="tiles">';
+    list.forEach(function(t, i){
+      var span = (list.length===1) || (list.length%2===1 && i===list.length-1);
+      html += '<button class="tile'+(span?' span':'')+'" data-go="'+t.key+'"><div class="ic">'+t.icon+'</div>'+
+        '<div class="tx"><div class="tl">'+esc(t.label)+'</div><div class="ds">'+esc(t.desc)+'</div></div></button>';
+    });
+    html += '</div>';
+  });
+  var c = document.getElementById("content");
+  c.innerHTML = html;
+  Array.prototype.forEach.call(c.querySelectorAll("[data-go]"), function(b){
+    b.onclick = function(){ switchTab(b.getAttribute("data-go")); };
   });
 }
+
 function switchTab(key){
   currentTab = key; openFundId = null;
-  renderTabs();
-  if(key==="funds"){
+  renderNav();
+  window.scrollTo(0, 0);
+  if(key==="home") renderHome();
+  else if(key==="funds"){
     document.getElementById("content").innerHTML = '<div class="loading">جاري التحميل...</div>';
     refreshFunds().then(function(){ if(currentTab==="funds") renderFundsList(); })
       .catch(function(e){ document.getElementById("content").innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; });
@@ -514,6 +575,7 @@ function switchTab(key){
   else if(key==="trash") renderTrashScreen();
   else if(key==="audit") renderAuditScreen();
   else if(key==="backup") renderBackupScreen();
+  else if(key==="settings") renderSettingsScreen();
 }
 
 /* ======================= الصناديق ======================= */
@@ -1278,7 +1340,7 @@ var ACT_LABEL = {
   fund_restore:"استرجاع صندوق", fund_purge:"حذف نهائي لصندوق",
   tx_edit:"تعديل حركة", tx_delete:"حذف حركة (للسلة)", tx_restore:"استرجاع حركة", tx_purge:"حذف نهائي لحركة",
   user_add:"إضافة مستخدم", user_active:"تفعيل / إيقاف مستخدم", user_perms:"تغيير صلاحيات",
-  backup_create:"نسخة احتياطية", backup_download:"تنزيل نسخة", backup_restore:"استرجاع نسخة", admin_recover:"استرجاع حساب المدير"
+  backup_create:"نسخة احتياطية", backup_download:"تنزيل نسخة", backup_restore:"استرجاع نسخة", admin_recover:"استرجاع حساب المدير", password_change:"تغيير كلمة السر"
 };
 function actClass(a){
   if(/_delete$|_purge$|backup_restore|admin_recover/.test(a)) return "bad";
@@ -1368,7 +1430,7 @@ function pickJsonFile(cb){
 function afterRestore(){
   toast("تم الاسترجاع ✓");
   lastFundsJson = "";
-  return refreshMe().catch(function(){}).then(function(){ switchTab("funds"); });
+  return refreshMe().catch(function(){}).then(function(){ switchTab("home"); });
 }
 function renderBackupScreen(){
   var c = document.getElementById("content");
@@ -1439,6 +1501,60 @@ function renderBackupScreen(){
     var list = document.getElementById("bkList");
     if(list){ list.className = ""; list.innerHTML = '<div class="empty">'+esc(e.message)+'</div>'; }
   });
+}
+
+/* ======================= الإعدادات ======================= */
+var ZOOM_OPTS = [{v:"1", l:"عادي"}, {v:"1.12", l:"كبير"}, {v:"1.25", l:"كبير جدًا"}];
+function getZoom(){ try{ return localStorage.getItem("daawo_zoom") || "1"; }catch(e){ return "1"; } }
+function applyZoom(){
+  var w = document.querySelector(".wrap");
+  if(w) w.style.zoom = getZoom();
+}
+function renderSettingsScreen(){
+  var c = document.getElementById("content");
+  var z = getZoom();
+  c.innerHTML =
+    '<div class="card"><h2>حسابي</h2>'+
+      '<div class="info-row"><span class="k">الاسم</span><b>'+esc(currentUser.displayName)+'</b></div>'+
+      '<div class="info-row"><span class="k">اسم المستخدم</span><b dir="ltr">@'+esc(currentUser.username)+'</b></div>'+
+      '<div class="info-row"><span class="k">الدور</span><span class="pill '+esc(currentUser.role)+'">'+esc(ROLE_LABEL[currentUser.role]||currentUser.role)+'</span></div>'+
+    '</div>'+
+    '<div class="card"><h2>حجم الخط</h2><div class="opt-row" id="zoomRow">'+
+      ZOOM_OPTS.map(function(o){ return '<button data-z="'+o.v+'" class="'+(o.v===z?'active':'')+'">'+o.l+'</button>'; }).join("")+
+    '</div><p class="hint">بيتحفظ على الجهاز ده بس.</p></div>'+
+    '<div class="card"><h2>تغيير كلمة السر</h2>'+
+      '<div class="field"><label>كلمة السر الحالية</label><input id="pw_cur" type="password" autocomplete="current-password"></div>'+
+      '<div class="field"><label>كلمة السر الجديدة</label><input id="pw_new" type="password" autocomplete="new-password"></div>'+
+      '<div class="field"><label>تأكيد كلمة السر الجديدة</label><input id="pw_new2" type="password" autocomplete="new-password"></div>'+
+      '<div class="err" id="pw_err"></div>'+
+      '<button class="full-btn" id="pw_save">حفظ كلمة السر</button>'+
+      '<p class="hint">بعد التغيير هتتسجل خروج الأجهزة التانية، وجهازك ده هيفضل شغال.</p></div>'+
+    '<button class="btn-danger" id="st_logout" style="width:100%;padding:12px;font-size:13.5px">تسجيل الخروج</button>'+
+    '<p class="hint" style="margin-top:12px">داوو مرضاكم بالصدقة - برويش</p>';
+
+  Array.prototype.forEach.call(c.querySelectorAll("#zoomRow button"), function(b){
+    b.onclick = function(){
+      try{ localStorage.setItem("daawo_zoom", b.getAttribute("data-z")); }catch(e){}
+      applyZoom();
+      Array.prototype.forEach.call(c.querySelectorAll("#zoomRow button"), function(x){ x.classList.toggle("active", x===b); });
+    };
+  });
+  document.getElementById("st_logout").onclick = forceLogout;
+  document.getElementById("pw_save").onclick = function(){
+    var cur = document.getElementById("pw_cur").value;
+    var nw = document.getElementById("pw_new").value;
+    var nw2 = document.getElementById("pw_new2").value;
+    document.getElementById("pw_err").style.display = "none";
+    if(!cur || !nw){ showErr("pw_err", "املى كل الحقول"); return; }
+    if(nw.length < 6){ showErr("pw_err", "كلمة السر الجديدة 6 حروف/أرقام على الأقل"); return; }
+    if(nw !== nw2){ showErr("pw_err", "تأكيد كلمة السر مش مطابق"); return; }
+    var btn = document.getElementById("pw_save"); btn.disabled = true;
+    api("POST", "/me/password", {current:cur, next:nw}).then(function(d){
+      if(d.token) saveToken(d.token);
+      toast("تم تغيير كلمة السر ✓");
+      renderSettingsScreen();
+    }).catch(function(e){ btn.disabled = false; showErr("pw_err", e.message); });
+  };
 }
 
 setupBackHandler();
